@@ -9,12 +9,13 @@
   hodgepodge #:mvn{:version "0.1.3"},
   keechma.next/toolbox
   {:git/url "https://github.com/keechma/keechma-next-toolbox.git",
-   :sha "038e96acb8dc6a3c63dccb36ef429b50e196ffc6"},
+   :sha "968df3e2c5c52279dac0d0cb7107448fe1e8123b"},
   lilactown/helix #:mvn{:version "0.0.13"},
   medley #:mvn{:version "1.2.0"},
   nubank/workspaces #:mvn{:version "1.0.15"},
   org.clojure/clojure #:mvn{:version "1.10.1"},
   org.clojure/clojurescript #:mvn{:version "1.10.764"},
   org.clojure/core.async #:mvn{:version "0.7.559"},
-  thheller/shadow-cljs #:mvn{:version "2.9.8"}},
+  com.verybigthings/state-machete #:mvn{:version "0.0.1"}
+  thheller/shadow-cljs #:mvn{:version "2.11.14"}},
  :paths ["src" "test"]}
