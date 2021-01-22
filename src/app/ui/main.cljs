@@ -33,7 +33,7 @@
         width (- (max start-x current-x) left)]
     (when (and current-x current-y)
       (d/div
-        {:class "absolute border border-blue-400 bg-blue-400 bg-opacity-10 pointer-events-none"
+        {:class "absolute border border-blue-400 bg-blue-400 bg-opacity-20 pointer-events-none"
          :style {:top (str top "px")
                  :left (str left "px")
                  :width (str width "px")
@@ -59,11 +59,37 @@
                                     {:x1 ##Inf :x2 ##-Inf :y1 ##Inf :y2 ##-Inf}
                                     selected)]
         (d/div
-          {:class "absolute border border-blue-400"
+          {:class "absolute"
            :onMouseDown (make-dispatch props :selected-mousedown)
            :onMouseUp (make-dispatch props :selected-mouseup)
            :onMouseLeave (make-dispatch props :selected-mouseleave)
            :onMouseMove (make-dispatch props :selected-mousemove)
+           :style {:top (str y1 "px")
+                   :left (str x1 "px")
+                   :width (str (- x2 x1) "px")
+                   :height (str (- y2 y1) "px")}})))))
+
+(defnc SelectedBorder [props]
+  (let [editor (use-sub props :editor)
+        editor-data (:fsm/data editor)
+        selected (:selected editor-data)
+        elements (get-in editor-data [:store :elements])]
+    (when (< 1 (count selected))
+      (let [{:keys [x1 x2 y1 y2]} (reduce
+                                    (fn [acc el-id]
+                                      (let [el (get elements el-id)
+                                            {:keys [top left width height]} el
+                                            x2 (+ left width)
+                                            y2 (+ top height)]
+                                        (cond-> acc
+                                          (< top (:y1 acc)) (assoc :y1 top)
+                                          (< left (:x1 acc)) (assoc :x1 left)
+                                          (> x2 (:x2 acc)) (assoc :x2 x2)
+                                          (> y2 (:y2 acc)) (assoc :y2 y2))))
+                                    {:x1 ##Inf :x2 ##-Inf :y1 ##Inf :y2 ##-Inf}
+                                    selected)]
+        (d/div
+          {:class "absolute border border-blue-400 pointer-events-none"
            :style {:top (str y1 "px")
                    :left (str x1 "px")
                    :width (str (- x2 x1) "px")
@@ -125,9 +151,28 @@
                          :left (str (:left el) "px")
                          :background (:background el)}})))
           (:order store))
+        (map
+          (fn [el-id]
+            (let [el (get-in store [:elements el-id])]
+              (d/div
+                {:key el-id
+                 :class ["absolute" (when (contains? selected el-id) "border border-blue-400 pointer-events-none")]
+                 :onMouseEnter (make-dispatch props :element-mouseenter {:id el-id})
+                 :onMouseLeave (make-dispatch props :element-mouseleave {:id el-id})
+                 :onMouseMove (make-dispatch props :element-mousemove {:id el-id})
+                 :onMouseDown (make-dispatch props :element-mousedown {:id el-id})
+                 :onMouseUp (make-dispatch props :element-mouseup {:id el-id})
+                 :onClick (make-dispatch props :element-click {:id el-id})
+                 :style {:width (str (:width el) "px")
+                         :height (str (:height el) "px")
+                         :top (str (:top el) "px")
+                         :left (str (:left el) "px")}})))
+          selected)
+        (when (not (sm/in-state? editor :selecting))
+          ($ SelectedBorder {& props}))
         (when (sm/in-state? editor :selecting)
           (<>
-            (d/div {:class "absolute top-0 left-0pointer-events-none"
+            (d/div {:class "absolute top-0 left-0"
                     :style {:width (str (:width editor-data) "px")
                             :height (str (:height editor-data) "px")}})
             ($ Selector {& props})))))))

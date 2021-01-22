@@ -10,7 +10,8 @@
 (defn clamp [val min-val max-val]
   (min max-val (max min-val val)))
 
-(def keymap {32 :space})
+(def keymap {32 :space
+             91 :cmd})
 
 (defn bind-window-event [event handler]
   (let [handler' (fn [e]
@@ -76,11 +77,26 @@
         elements (vals (sm/get-in-data fsm [:store :elements]))
         [x1 x2] (sort [start-x current-x])
         [y1 y2] (sort [start-y current-y])
-        selected (reduce
+        #_#_selected (reduce
                    (fn [acc el]
                      (let [{:keys [top left width height id]} el]
                        (if (and (<= x1 left (+ left width) x2)
                              (<= y1 top (+ top height) y2))
+                         (conj acc id)
+                         acc)))
+                   #{}
+                   elements)
+        selected (reduce
+                   (fn [acc el]
+                     (let [{:keys [top left width height id]} el
+                           el-y1 top
+                           el-y2 (+ top height)
+                           el-x1 left
+                           el-x2 (+ left width)]
+                       (if-not (or (> el-x1 x2)
+                                 (< el-x2 x1)
+                                 (> el-y1 y2)
+                                 (< el-y2 y1))
                          (conj acc id)
                          acc)))
                    #{}
@@ -138,9 +154,14 @@
        [:fsm/transition #:fsm.transition{:event :keydown
                                          :target :moving-canvas
                                          :cond space-key?}]
+       [:fsm/transition #:fsm.transition {:event :keydown
+                                          :cond (fn [fsm {:keys [native-event]}]
+                                                  (let [which (oget native-event :?which)]
+                                                    (= :cmd (keymap which))))
+                                          :target :multiselect}]
        [:fsm/transition #:fsm.transition {:event :element-mousedown
                                           :target :dragging
-                                          :fsm/on (fn [fsm {:keys [id]}]
+                                          :fsm/on (fn [fsm {:keys [id native-event]}]
                                                     (let [selected (sm/get-in-data fsm [:selected])]
                                                       (if (contains? selected id)
                                                         fsm
@@ -149,6 +170,18 @@
                                           :target :dragging}]
        [:fsm/transition #:fsm.transition{:event :canvas-mousedown
                                          :target :selecting}]]
+      [:fsm/state#multiselect
+       [:fsm/transition #:fsm.transition {:event :element-click
+                                          :fsm/on (fn [fsm {:keys [id native-event]}]
+                                                    (let [selected (sm/get-in-data fsm [:selected])]
+                                                      (if (contains? selected id)
+                                                        (sm/update-in-data fsm [:selected] disj id)
+                                                        (sm/update-in-data fsm [:selected] set-conj id))))}]
+       [:fsm/transition #:fsm.transition {:event :keyup
+                                          :target :editing
+                                          :cond (fn [fsm {:keys [native-event]}]
+                                                  (let [which (oget native-event :?which)]
+                                                    (= :cmd (keymap which))))}]]
       [:fsm/state#dragging
        {:fsm.on/enter (fn [fsm {:keys [native-event]}]
                         (-> fsm
@@ -156,14 +189,14 @@
                           (sm/assoc-in-data [::dragging-coords]
                             {:start-x (oget native-event :nativeEvent.pageX)
                              :start-y (oget native-event :nativeEvent.pageY)})))}
-       [:fsm/transition #:fsm.transition{:event #{:element-mousemove :selected-mousemove}
+       [:fsm/transition #:fsm.transition{:event #{:element-mousemove :selected-mousemove :canvas-mousemove}
                                          :fsm/on (fn [fsm {:keys [native-event]}]
                                                    (-> fsm
                                                      (sm/update-in-data [::dragging-coords] merge
                                                        {:current-x (oget native-event :nativeEvent.pageX)
                                                         :current-y (oget native-event :nativeEvent.pageY)})
                                                      (move-elements)))}]
-       [:fsm/transition #:fsm.transition{:event #{:element-mouseleave :element-mouseup :selected-mouseleave :selected-mouseup}
+       [:fsm/transition #:fsm.transition{:event #{:element-mouseup :selected-mouseup :canvas-mouseleave :canvas-mouseup}
                                          :target :editing}]]
       [:fsm/state#selecting
        {:fsm.on/enter (fn [fsm {:keys [native-event]}]
@@ -184,24 +217,23 @@
                                      (select-elements)))}]
        [:fsm/transition #:fsm.transition{:event :canvas-mouseup
                                          :target :editing}]]
-      [:fsm/parallel
-       [:fsm/state#moving-canvas
-        [:fsm/state {:fsm/id :moving-canvas-mouse}
-         [:fsm/state {:fsm/id :moving-canvas.mouse/up}
-          [:fsm/transition #:fsm.transition{:event #{:canvas-mousedown :element-mousedown :selected-mousedown}
-                                            :target :moving-canvas.mouse/down}]]
-         [:fsm/state
-          {:fsm/id :moving-canvas.mouse/down
-           :fsm.on/enter track-moving-canvas-mousedown-positions
-           :fsm.on/exit dissoc-moving-canvas-mousedown-positions}
-          [:fsm/transition #:fsm.transition{:event #{:canvas-mouseup :element-mouseup :selected-mouseup}
-                                            :target :moving-canvas.mouse/up}]
-          [:fsm/transition
-           {:fsm.transition/event #{:canvas-mousemove :element-mousemove :selected-mousemove}
-            :fsm/on update-moving-canvas-mousemove-position}]]]
-        [:fsm/transition #:fsm.transition{:event :keyup
-                                          :target :editing
-                                          :cond space-key?}]]]
+      [:fsm/state#moving-canvas
+       [:fsm/state {:fsm/id :moving-canvas-mouse}
+        [:fsm/state {:fsm/id :moving-canvas.mouse/up}
+         [:fsm/transition #:fsm.transition{:event #{:canvas-mousedown :element-mousedown :selected-mousedown}
+                                           :target :moving-canvas.mouse/down}]]
+        [:fsm/state
+         {:fsm/id :moving-canvas.mouse/down
+          :fsm.on/enter track-moving-canvas-mousedown-positions
+          :fsm.on/exit dissoc-moving-canvas-mousedown-positions}
+         [:fsm/transition #:fsm.transition{:event #{:canvas-mouseup :element-mouseup :selected-mouseup}
+                                           :target :moving-canvas.mouse/up}]
+         [:fsm/transition
+          {:fsm.transition/event #{:canvas-mousemove :element-mousemove :selected-mousemove}
+           :fsm/on update-moving-canvas-mousemove-position}]]]
+       [:fsm/transition #:fsm.transition{:event :keyup
+                                         :target :editing
+                                         :cond space-key?}]]
       [:fsm/transition #:fsm.transition{:event :canvas-mouseleave :target :editor-idle}]]]]
    [:fsm/transition #:fsm.transition{:event :keydown :cond space-key?}]])
 
@@ -214,13 +246,14 @@
   (-> (make-fsm ctrl)
     sm/compile
     (sm/start
-      {:store {:elements {1 {:id 1 :width 200 :height 200 :background "#e4f030" :top 500 :left 900}
-                          2 {:id 2 :width 200 :height 200 :background "#ffc09c" :top 500 :left 1400}}
-               :order [1 2]}})))
+      {:store {:elements {1 {:id 1 :width 200 :height 200 :background "#e4f030" :top 500 :left 500}
+                          2 {:id 2 :width 200 :height 200 :background "#ffc09c" :top 500 :left 800}
+                          3 {:id 3 :width 200 :height 200 :background "#8feba8" :top 800 :left 500}}
+               :order [1 2 3]}})))
 
 (defmethod ctrl/handle :editor [{:keys [state*]} cmd payload]
   (let [payload' (if (map? payload) (assoc payload :fsm/event cmd) {:fsm/event cmd :payload payload})]
-    (println cmd)
+    ;; (println cmd)
     ;; (println (:fsm/event payload'))
     (swap! state* sm/trigger payload')))
 
