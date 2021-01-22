@@ -77,31 +77,35 @@
         elements (vals (sm/get-in-data fsm [:store :elements]))
         [x1 x2] (sort [start-x current-x])
         [y1 y2] (sort [start-y current-y])
-        #_#_selected (reduce
-                   (fn [acc el]
-                     (let [{:keys [top left width height id]} el]
-                       (if (and (<= x1 left (+ left width) x2)
-                             (<= y1 top (+ top height) y2))
-                         (conj acc id)
-                         acc)))
-                   #{}
-                   elements)
-        selected (reduce
-                   (fn [acc el]
-                     (let [{:keys [top left width height id]} el
-                           el-y1 top
-                           el-y2 (+ top height)
-                           el-x1 left
-                           el-x2 (+ left width)]
-                       (if-not (or (> el-x1 x2)
-                                 (< el-x2 x1)
-                                 (> el-y1 y2)
-                                 (< el-y2 y1))
-                         (conj acc id)
-                         acc)))
-                   #{}
-                   elements)]
-    (sm/assoc-in-data fsm [:selected] selected)))
+        select-mode (if (< start-y current-y) :full :intersect)
+        selected (if (= :full select-mode)
+                   (reduce
+                     (fn [acc el]
+                       (let [{:keys [top left width height id]} el]
+                         (if (and (<= x1 left (+ left width) x2)
+                               (<= y1 top (+ top height) y2))
+                           (conj acc id)
+                           acc)))
+                     #{}
+                     elements)
+                   (reduce
+                     (fn [acc el]
+                       (let [{:keys [top left width height id]} el
+                             el-y1 top
+                             el-y2 (+ top height)
+                             el-x1 left
+                             el-x2 (+ left width)]
+                         (if-not (or (> el-x1 x2)
+                                   (< el-x2 x1)
+                                   (> el-y1 y2)
+                                   (< el-y2 y1))
+                           (conj acc id)
+                           acc)))
+                     #{}
+                     elements))]
+    (-> fsm
+      (sm/assoc-in-data [:selected] selected)
+      (sm/assoc-in-data [:select-mode] select-mode))))
 
 (defn mark-dragging-start-coords [fsm]
   (let [selected (sm/get-in-data fsm [:selected])]
@@ -169,7 +173,9 @@
        [:fsm/transition #:fsm.transition {:event :selected-mousedown
                                           :target :dragging}]
        [:fsm/transition #:fsm.transition{:event :canvas-mousedown
-                                         :target :selecting}]]
+                                         :target :selecting
+                                         :fsm/on (fn [fsm _]
+                                                   (sm/assoc-in-data fsm [:selected] #{}))}]]
       [:fsm/state#multiselect
        [:fsm/transition #:fsm.transition {:event :element-click
                                           :fsm/on (fn [fsm {:keys [id native-event]}]
@@ -177,11 +183,14 @@
                                                       (if (contains? selected id)
                                                         (sm/update-in-data fsm [:selected] disj id)
                                                         (sm/update-in-data fsm [:selected] set-conj id))))}]
+       [:fsm/transition #:fsm.transition{:event :canvas-mousedown
+                                         :target :multiselect-selecting}]
        [:fsm/transition #:fsm.transition {:event :keyup
                                           :target :editing
                                           :cond (fn [fsm {:keys [native-event]}]
                                                   (let [which (oget native-event :?which)]
-                                                    (= :cmd (keymap which))))}]]
+                                                    (= :cmd (keymap which))))}]
+       ]
       [:fsm/state#dragging
        {:fsm.on/enter (fn [fsm {:keys [native-event]}]
                         (-> fsm
@@ -197,11 +206,14 @@
                                                         :current-y (oget native-event :nativeEvent.pageY)})
                                                      (move-elements)))}]
        [:fsm/transition #:fsm.transition{:event #{:element-mouseup :selected-mouseup :canvas-mouseleave :canvas-mouseup}
+                                         :target :multiselect
+                                         :cond (fn [fsm {:keys [native-event]}]
+                                                 (oget native-event :?metaKey))}]
+       [:fsm/transition #:fsm.transition{:event #{:element-mouseup :selected-mouseup :canvas-mouseleave :canvas-mouseup}
                                          :target :editing}]]
       [:fsm/state#selecting
        {:fsm.on/enter (fn [fsm {:keys [native-event]}]
                         (-> fsm
-                          (sm/assoc-in-data [:selected] #{})
                           (sm/assoc-in-data [::selecting-coords]
                             {:start-x (oget native-event :nativeEvent.offsetX)
                              :start-y (oget native-event :nativeEvent.offsetY)})))
@@ -246,16 +258,18 @@
   (-> (make-fsm ctrl)
     sm/compile
     (sm/start
-      {:store {:elements {1 {:id 1 :width 200 :height 200 :background "#e4f030" :top 500 :left 500}
-                          2 {:id 2 :width 200 :height 200 :background "#ffc09c" :top 500 :left 800}
-                          3 {:id 3 :width 200 :height 200 :background "#8feba8" :top 800 :left 500}}
-               :order [1 2 3]}})))
+      {:store {:elements {1 {:id 1 :width 200 :height 200 :background "#e4f030" :top 300 :left 500}
+                          2 {:id 2 :width 200 :height 200 :background "#ffc09c" :top 300 :left 800}
+                          3 {:id 3 :width 200 :height 200 :background "#8feba8" :top 600 :left 500}
+                          4 {:id 4 :width 200 :height 200 :background "#bbf0f0" :top 600 :left 800}}
+               :order [1 2 3 4]}})))
 
 (defmethod ctrl/handle :editor [{:keys [state*]} cmd payload]
   (let [payload' (if (map? payload) (assoc payload :fsm/event cmd) {:fsm/event cmd :payload payload})]
     ;; (println cmd)
     ;; (println (:fsm/event payload'))
-    (swap! state* sm/trigger payload')))
+    (swap! state* sm/trigger payload')
+    (println (sm/get-active-states @state*))))
 
 (defmethod ctrl/terminate :editor [ctrl]
   (doseq [u (::unbinds ctrl)]

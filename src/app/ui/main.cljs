@@ -26,14 +26,19 @@
 
 (defnc Selector [props]
   (let [editor (use-sub props :editor)
-        {:keys [start-x start-y current-x current-y]} (get-in editor [:fsm/data :app.controllers.editor/selecting-coords])
+        editor-data (:fsm/data editor)
+        {:keys [start-x start-y current-x current-y]} (:app.controllers.editor/selecting-coords editor-data)
+        select-mode (:select-mode editor-data)
         top (min start-y current-y)
         height (- (max start-y current-y) top)
         left (min start-x current-x)
         width (- (max start-x current-x) left)]
     (when (and current-x current-y)
       (d/div
-        {:class "absolute border border-blue-400 bg-blue-400 bg-opacity-20 pointer-events-none"
+        {:class ["absolute border bg-opacity-20 pointer-events-none"
+                 (if (= :full select-mode)
+                   "border-blue-400 bg-blue-400"
+                   "border-green-400 bg-green-400")]
          :style {:top (str top "px")
                  :left (str left "px")
                  :width (str width "px")
